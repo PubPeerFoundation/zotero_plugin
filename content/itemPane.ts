@@ -117,13 +117,11 @@ export class ItemPane {
     const html = this.dom.parser.parseFromString(summary, 'text/xml')
     for (const a of html.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'a')) {
       if (a.getAttribute('href')) {
-        const description = loaded.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'description')
-        description.setAttribute('flex', '1') // needed to let the button text reflow
-        const button = description.appendChild(loaded.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'button'))
+        const button = loaded.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'button')
         button.setAttribute('label', a.innerText)
         button.setAttribute('style', 'display: inline; color: blue; outline: none; border: 0')
         button.setAttribute('oncommand', `Zotero.launchURL(${JSON.stringify(a.getAttribute('href'))}); return false`)
-        a.replaceWith(description)
+        a.replaceWith(button)
       }
     }
 
