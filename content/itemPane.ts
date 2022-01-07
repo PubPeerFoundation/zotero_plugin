@@ -30,7 +30,10 @@ function toggleUser() {
   }
 }
 
-const xul = 'http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul'
+const ns = {
+  xul: 'http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul',
+  html: 'http://www.w3.org/1999/xhtml',
+}
 
 export class ItemPane {
   public item: any = null
@@ -70,52 +73,66 @@ export class ItemPane {
 
   public async refresh() {
     const container = loaded.document.getElementById('zotero-editpane-pubpeer')
-    for (const hbox of Array.from(container.getElementsByTagNameNS(xul, 'hbox'))) {
+    for (const hbox of Array.from(container.getElementsByTagNameNS(ns.xul, 'hbox'))) {
       hbox.remove()
     }
 
-    const doi = this.item?.getField('DOI')
     let summary = Zotero.PubPeer.getString('itemPane.noComment')
+    const doi = this.item?.getField('DOI')
     const feedback = doi && (await Zotero.PubPeer.get([doi]))[0]
     if (feedback) {
-      summary = Zotero.PubPeer.getString('itemPane.summary', {...feedback, users: feedback.users.join(', '), last_commented_at: feedback.last_commented_at.toLocaleString() }, true)
-      summary = `<div xmlns:html="http://www.w3.org/1999/xhtml">${summary}</div>`
-      summary = summary.replace(/(<\/?)/g, '$1html:')
+      try {
+        summary = Zotero.PubPeer.getString('itemPane.summary', {...feedback, users: feedback.users.join(', '), last_commented_at: feedback.last_commented_at?.toLocaleString() || '<no known date>'}, true)
 
-      const html = this.dom.parser.parseFromString(summary, 'text/xml')
-      for (const a of html.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'a')) {
-        if (!a.getAttribute('url')) continue
+        for (const user of feedback.users) {
+          Zotero.PubPeer.users[user] = Zotero.PubPeer.users[user] || 'neutral'
 
-        a.setAttribute('onclick', 'Zotero.launchURL(this.getAttribute("url")); return false;')
-        a.setAttribute('style', 'color: blue')
-      }
-      summary = this.dom.serializer.serializeToString(html)
+          const hbox: any = container.appendChild(loaded.document.createElementNS(ns.xul, 'hbox'))
+          hbox.setAttribute('align', 'center')
+          hbox.setAttribute('class', `pubpeer-user pubpeer-user-${Zotero.PubPeer.users[user]}`)
 
-      debug(`PubPeer.ZoteroItemPane.refresh: ${JSON.stringify(feedback)}: ${summary}`)
+          const cb: any = hbox.appendChild(loaded.document.createElementNS(ns.xul, 'label'))
+          const state = Zotero.PubPeer.users[user]
+          cb.setAttribute('class', 'pubpeer-checkbox')
+          cb.value = states.label[state]
+          cb.setAttribute('data-user', user)
+          cb.setAttribute('data-state', state)
+          cb.onclick = toggleUser
 
-      for (const user of feedback.users) {
-        Zotero.PubPeer.users[user] = Zotero.PubPeer.users[user] || 'neutral'
-
-        const hbox: any = container.appendChild(loaded.document.createElementNS(xul, 'hbox'))
-        hbox.setAttribute('align', 'center')
-        hbox.setAttribute('class', `pubpeer-user pubpeer-user-${Zotero.PubPeer.users[user]}`)
-
-        const cb: any = hbox.appendChild(loaded.document.createElementNS(xul, 'label'))
-        const state = Zotero.PubPeer.users[user]
-        cb.setAttribute('class', 'pubpeer-checkbox')
-        cb.value = states.label[state]
-        cb.setAttribute('data-user', user)
-        cb.setAttribute('data-state', state)
-        cb.onclick = toggleUser
-
-        const label: any = hbox.appendChild(loaded.document.createElementNS(xul, 'label'))
-        label.setAttribute('class', 'pubpeer-username')
-        label.setAttribute('value', user)
-        label.setAttribute('flex', '8')
+          const label: any = hbox.appendChild(loaded.document.createElementNS(ns.xul, 'label'))
+          label.setAttribute('class', 'pubpeer-username')
+          label.setAttribute('value', user)
+          label.setAttribute('flex', '8')
+        }
+      } catch (err) {
+        const msg = err.message || `${err}` || 'unknown error'
+        debug('Error:', msg)
+        summary = msg.replace(/[\x26\x0A\<>'"]/g, c => `&#${c.charCodeAt(0)};`)
       }
     }
 
-    loaded.document.getElementById('zotero-editpane-pubpeer-summary').innerHTML = summary
+    summary =  `<div xmlns:html="${ns.html}" xmlns:xul="${ns.xul}">${summary}</div>`
+    summary = summary.replace(/(<\/?)/g, '$1html:')
+
+    const html = this.dom.parser.parseFromString(summary, 'text/xml')
+    for (const a of html.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'a')) {
+      if (a.getAttribute('href')) {
+        const description = loaded.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'description')
+        description.setAttribute('flex', '1') // needed to let the button text reflow
+        const button = description.appendChild(loaded.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'button'))
+        button.setAttribute('label', a.innerText)
+        button.setAttribute('style', 'display: inline; color: blue; outline: none; border: 0')
+        button.setAttribute('oncommand', `Zotero.launchURL(${JSON.stringify(a.getAttribute('href'))}); return false`)
+        a.replaceWith(description)
+      }
+    }
+
+    const pane = loaded.document.getElementById('zotero-editpane-pubpeer-summary')
+    while (pane.firstChild) {
+      pane.firstChild.remove()
+    }
+    pane.append(html.documentElement)
+    debug(`PubPeer.ZoteroItemPane.refresh: ${JSON.stringify(feedback)}: ${pane.innerHTML}`)
   }
 }
 

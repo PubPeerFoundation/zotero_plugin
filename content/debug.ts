@@ -16,7 +16,7 @@ function to_s(obj: any): string {
 
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export function debug(...msg): void {
-  const str = `Cite Columns: ${msg.map(to_s).join(' ')}`
+  const str = `PubPeer: ${msg.map(to_s).join(' ')}`
   // console.error(str) // tslint:disable-line:no-console
   Zotero.debug(str)
 }
