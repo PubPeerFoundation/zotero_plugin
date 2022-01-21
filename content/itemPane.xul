@@ -13,7 +13,7 @@
     <tabpanel id="zotero-editpane-pubpeer-tabpanel" flex="1" orient="vertical">
       <vbox id="zotero-editpane-pubpeer" flex="1" style="overflow: auto">
         <description>
-          <html:div id="zotero-editpane-pubpeer-summary" xmlns:html="http://www.w3.org/1999/xhtml" type="content"/>
+          <div xmlns="http://www.w3.org/1999/xhtml" id="zotero-editpane-pubpeer-summary" type="content"/>
         </description>
       </vbox>
     </tabpanel>

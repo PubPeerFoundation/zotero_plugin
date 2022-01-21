@@ -115,6 +115,7 @@ export class ItemPane {
     summary = summary.replace(/(<\/?)/g, '$1html:')
 
     const html = this.dom.parser.parseFromString(summary, 'text/xml')
+    /*
     for (const a of html.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'a')) {
       if (a.getAttribute('href')) {
         const button = loaded.document.createElementNS('http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul', 'button')
@@ -124,12 +125,14 @@ export class ItemPane {
         a.replaceWith(button)
       }
     }
+    */
 
     const pane = loaded.document.getElementById('zotero-editpane-pubpeer-summary')
     while (pane.firstChild) {
       pane.firstChild.remove()
     }
     pane.append(html.documentElement)
+    Zotero.Utilities.Internal.updateHTMLInXUL(pane)
     debug(`PubPeer.ZoteroItemPane.refresh: ${JSON.stringify(feedback)}: ${pane.innerHTML}`)
   }
 }

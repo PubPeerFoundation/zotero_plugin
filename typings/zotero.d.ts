@@ -4,6 +4,7 @@ declare global {
   interface IZotero {
     PubPeer: PubPeer
 
+    Utilities: any
     Styles: any
     Cite: any
     ProgressWindow: any
