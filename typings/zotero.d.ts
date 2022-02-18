@@ -16,5 +16,6 @@ declare global {
     Notifier: any
     Schema: any
     Promise: any
+    ProgressWindow: () => void
   }
 }

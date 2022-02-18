@@ -7,9 +7,22 @@ import { patch as $patch$ } from './monkey-patch'
 
 const loaded: { document: HTMLDocument } = { document: null }
 
-export class ZoteroPane { // tslint:disable-line:variable-name
-  private selectedItem: any
+const seconds = 1000
 
+// eslint-disable-next-line no-magic-numbers
+function flash(title: string, body?: string, timeout = 8): void {
+  try {
+    const pw = new Zotero.ProgressWindow()
+    pw.changeHeadline(`PubPeer: ${title}`)
+    if (!body) body = title
+    pw.addDescription(body)
+    pw.show()
+    pw.startCloseTimer(timeout * seconds)
+  } catch (err) {
+  }
+}
+
+export class ZoteroPane { // tslint:disable-line:variable-name
   public async load(globals) {
     loaded.document = globals.document
 
@@ -23,14 +36,8 @@ export class ZoteroPane { // tslint:disable-line:variable-name
   }
 
   public handleEvent(event) {
-    const selectedItems = Zotero.getActiveZoteroPane().getSelectedItems()
-    this.selectedItem = selectedItems.length ? selectedItems[0] : null
-
-    if (selectedItems.length !== 1 || !this.selectedItem || !this.selectedItem.isRegularItem() || !this.selectedItem.getField('DOI')) {
-      this.selectedItem = null
-    }
-
-    loaded.document.getElementById('menu-pubpeer-get-link').hidden = !this.selectedItem
+    const items = Zotero.getActiveZoteroPane().getSelectedItems().filter(item => item.isRegularItem() && item.getField('DOI'))
+    loaded.document.getElementById('menu-pubpeer-get-link').hidden = items.length === 0
   }
 
   public run(method, ...args) {
@@ -38,14 +45,15 @@ export class ZoteroPane { // tslint:disable-line:variable-name
   }
 
   public async getPubPeerLink() {
-    const doi = this.selectedItem ? this.selectedItem.getField('DOI') : ''
-    if (!doi) return
-
-    const feedback = (await Zotero.PubPeer.get([ doi ]))[0]
-    if (feedback) {
-      let output = `The selected item has ${feedback.total_comments} ${feedback.total_comments === 1 ? 'comment' : 'comments'} on PubPeer`
-      if (feedback.total_comments) output += ` ${feedback.url}`
-      alert(output)
+    let doi, feedback
+    for (const item of Zotero.getActiveZoteroPane().getSelectedItems()) {
+      if (item.isRegularItem() && (doi = item.getField('DOI'))) {
+        if (feedback = (await Zotero.PubPeer.get([ doi ]))[0]) {
+          let output = `The selected item has ${feedback.total_comments} ${feedback.total_comments === 1 ? 'comment' : 'comments'} on PubPeer`
+          if (feedback.total_comments) output += ` ${feedback.url}`
+          flash(doi, output)
+        }
+      }
     }
   }
 }
