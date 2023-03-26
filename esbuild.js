@@ -1,4 +1,7 @@
 const esbuild = require('esbuild')
+const rmrf = require('rimraf')
+
+rmrf.sync('gen')
 
 require('zotero-plugin/copy-assets')
 require('zotero-plugin/rdf')
@@ -11,8 +14,6 @@ async function build() {
     target: ['firefox60'],
     entryPoints: [ 'content/pubpeer.ts' ],
     outdir: 'build/content',
-    banner: { js: 'if (!Zotero.PubPeer) {\n' },
-    footer: { js: '\n}' },
     external: [ 'zotero/itemTree' ]
   })
 }

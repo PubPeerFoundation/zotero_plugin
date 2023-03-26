@@ -1,3 +1,5 @@
+/* eslint-disable prefer-arrow/prefer-arrow-functions */
+
 Components.utils.import('resource://gre/modules/AddonManager.jsm')
 declare const AddonManager: any
 
@@ -9,6 +11,7 @@ import { patch as $patch$ } from './monkey-patch'
 import { debug } from './debug'
 import { ItemPane } from './itemPane'
 import { ZoteroPane as ZoteroPaneHelper } from './zoteroPane'
+import { DebugLog as DebugLogSender } from 'zotero-plugin/debug-log'
 
 const seconds = 1000
 
@@ -23,7 +26,8 @@ export function flash(title: string, body?: string, timeout = 0): void {
     pw.addDescription(body)
     pw.show()
     if (timeout) pw.startCloseTimer(timeout * seconds)
-  } catch (err) {
+  }
+  catch (err) {
     debug('flash failed:', JSON.stringify({title, body}), err.message)
   }
 }
@@ -48,82 +52,98 @@ function plaintext(text) {
 function getField(item, field) {
   try {
     return item.getField(field) || ''
-  } catch (err) {
+  }
+  catch (err) {
     return ''
   }
 }
-function getDOI(item) {
-  const doi = getField(item, 'DOI')
+function getDOI(item): string {
+  const doi: string = getField(item, 'DOI')
   if (doi) return doi
 
   const extra = getField(item, 'extra')
   if (!extra) return ''
 
-  const dois = extra.split('\n').map(line => line.match(/^DOI:\s*(.+)/i)).filter(line => line).map(line => line[1].trim())
+  const dois: string[] = extra.split('\n')
+    .map((line: string) => line.match(/^DOI:\s*(.+)/i))
+    .filter((line: string) => line)
+    .map((line: string) => line[1].trim())
   return dois[0] || ''
 }
 
+debug('table mode', typeof Zotero.ItemTreeView === 'undefined' ? 'new' : 'old')
 if (typeof Zotero.ItemTreeView === 'undefined') {
   const itemTree = require('zotero/itemTree')
 
   $patch$(itemTree.prototype, 'getColumns', original => function Zotero_ItemTree_prototype_getColumns() {
     const columns = original.apply(this, arguments)
-    const insertAfter: number = columns.findIndex(column => column.dataKey === 'title')
-    columns.splice(insertAfter + 1, 0, {
+    // const insertAfter: number = columns.findIndex(column => column.dataKey === 'title')
+    columns.push(/* splice(insertAfter + 1, 0, */{
       dataKey: 'pubpeer',
       label: 'PubPeer',
       flex: '1',
       zoteroPersist: new Set(['width', 'ordinal', 'hidden', 'sortActive', 'sortDirection']),
     })
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return columns
   })
 
   $patch$(itemTree.prototype, '_renderCell', original => function Zotero_ItemTree_prototype_renderCell(index, data, col) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     if (col.dataKey !== 'pubpeer') return original.apply(this, arguments)
 
-    const item = this.getRow(index).ref
-    if (!item.isRegularItem()) return ''
-
-    if (Zotero.PubPeer.ready.isPending()) { // tslint:disable-line:no-use-before-declare
-      const loading = document.createElementNS('http://www.w3.org/1999/xhtml', 'img')
-      loading.className = 'pubpeer-state-loading'
-      loading.setAttribute('src', 'chrome://zotero-pubpeer/skin/loading.gif')
-      return loading
-    }
-
-    const feedback = Zotero.PubPeer.feedback[getDOI(item)]
-    const state = feedback.users.map(user => Zotero.PubPeer.users[user])
+    const content = document.createElementNS('http://www.w3.org/1999/xhtml', 'span')
+    content.className = 'cell-text'
 
     const cell = document.createElementNS('http://www.w3.org/1999/xhtml', 'span')
-    cell.innerText = `${feedback.total_comments}`
-    if (state.includes('priority')) {
-      cell.className = 'pubpeer-state-highlighted'
-    } else if (state.includes('neutral')) {
-      cell.className = 'pubpeer-state-neutral'
-    } else {
-      cell.className = 'pubpeer-state-muted'
+    cell.className = `cell ${col.className}`
+    cell.append(content)
+
+    let feedback
+
+    const item = this.getRow(index).ref
+    if (item.isRegularItem()) {
+      if (Zotero.PubPeer.ready.isPending()) {
+        content.className = 'pubpeer-state-loading'
+      }
+      else if (feedback = Zotero.PubPeer.feedback[getDOI(item)]) {
+        content.innerText = `${feedback.total_comments}`
+
+        const state = feedback.users.map(user => Zotero.PubPeer.users[user])
+        if (state.includes('priority')) {
+          content.className = 'pubpeer-state-highlighted'
+        }
+        else if (state.includes('neutral')) {
+          content.className = 'pubpeer-state-neutral'
+        }
+        else {
+          content.className = 'pubpeer-state-muted'
+        }
+      }
     }
 
     return cell
   })
-} else {
+}
+else {
   const itemTreeViewWaiting: Record<string, boolean> = {}
 
-  function getCellX(tree, row, col, field) {
+  function getCellX(tree, row, col, field): string { // eslint-disable-line no-inner-declarations
     if (col.id !== 'zotero-items-column-pubpeer') return ''
 
     const item = tree.getRow(row).ref
 
     if (item.isNote() || item.isAttachment()) return ''
 
-    if (Zotero.PubPeer.ready.isPending()) { // tslint:disable-line:no-use-before-declare
+    if (Zotero.PubPeer.ready.isPending()) {
       const id = `${field}.${item.id}`
       if (!itemTreeViewWaiting[id]) {
-        // tslint:disable-next-line:no-use-before-declare
-        Zotero.PubPeer.ready.then(() => tree._treebox.invalidateCell(row, col))
+        Zotero.PubPeer.ready
+          .then(() => {
+            tree._treebox.invalidateCell(row, col) // eslint-disable-line no-underscore-dangle
+          })
+          .catch(err => {
+            Zotero.logError(err)
+          })
         itemTreeViewWaiting[id] = true
       }
 
@@ -140,49 +160,51 @@ if (typeof Zotero.ItemTreeView === 'undefined') {
     const feedback = Zotero.PubPeer.feedback[getDOI(item)]
     if (!feedback) return ''
 
+    let state
     switch (field) {
       case 'text':
         return `${feedback.total_comments}` // last_commented_at.toISOString().replace(/T.*/, '')
 
       case 'properties':
-        const state = feedback.users.map(user => Zotero.PubPeer.users[user])
+        state = feedback.users.map(user => Zotero.PubPeer.users[user])
         if (state.includes('priority')) return ' pubpeer-state-highlighted'
         if (state.includes('neutral')) return ' pubpeer-state-neutral'
         return ' pubpeer-state-muted'
     }
   }
 
-  $patch$(Zotero.ItemTreeView.prototype, 'getCellProperties', original => function Zotero_ItemTreeView_prototype_getCellProperties(row, col, prop) {
-    return (original.apply(this, arguments) + getCellX(this, row, col, 'properties')).trim()
+  $patch$(Zotero.ItemTreeView.prototype, 'getCellProperties', original => function Zotero_ItemTreeView_prototype_getCellProperties(row, col, _prop) {
+    return (original.apply(this, arguments) as string + getCellX(this, row, col, 'properties')).trim()
   })
 
-  $patch$(Zotero.ItemTreeView.prototype, 'getCellText', original => function Zotero_ItemTreeView_prototype_getCellText(row, col) {
-    if (col.id !== 'zotero-items-column-pubpeer') return original.apply(this, arguments)
+  $patch$(Zotero.ItemTreeView.prototype, 'getCellText', original => function Zotero_ItemTreeView_prototype_getCellText(row, col): string {
+    if (col.id !== 'zotero-items-column-pubpeer') return original.apply(this, arguments) as string
 
     return getCellX(this, row, col, 'text')
   })
 }
 
-$patch$(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field, unformatted, includeBaseMapped) {
+$patch$(Zotero.Item.prototype, 'getField', original => function Zotero_Item_prototype_getField(field, _unformatted, _includeBaseMapped): string {
   try {
     if (field === 'pubpeer') {
-      if (Zotero.PubPeer.ready.isPending()) return '' // tslint:disable-line:no-use-before-declare
+      if (Zotero.PubPeer.ready.isPending()) return ''
       const doi = getDOI(this)
       if (!doi || !Zotero.PubPeer.feedback[doi]) return ''
       return ' '
     }
-  } catch (err) {
+  }
+  catch (err) {
     Zotero.logError(`pubpeer patched getField: ${err}`)
     return ''
   }
 
-  return original.apply(this, arguments)
+  return original.apply(this, arguments) as string
 })
 
 $patch$(Zotero.Integration.Session.prototype, 'addCitation', original => async function(index, noteIndex, citation) {
   await original.apply(this, arguments)
   try {
-    const ids = citation.citationItems.map(item => item.id)
+    const ids = citation.citationItems.map((item: { id: number }) => item.id)
 
     const style = Zotero.Styles.get('http://www.zotero.org/styles/apa')
     const cslEngine = style.getCiteProc('en-US')
@@ -201,22 +223,23 @@ $patch$(Zotero.Integration.Session.prototype, 'addCitation', original => async f
         }
       })
     }
-  } catch (err) {
+  }
+  catch (err) {
     debug('Zotero.Integration.Session.prototype.addCitation:', err.message)
   }
 })
 
 const ready = Zotero.Promise.defer()
 
-export class PubPeer { // tslint:disable-line:variable-name
-  public ItemPane = new ItemPane // tslint:disable-line:variable-name
-  public ZoteroPane = new ZoteroPaneHelper // tslint:disable-line:variable-name
+export class PubPeer {
+  public ItemPane = new ItemPane
+  public ZoteroPane = new ZoteroPaneHelper
 
   public ready: Promise<boolean> & { isPending: () => boolean } = ready.promise
   // public ready: any = ready.promise
   public feedback: { [DOI: string]: Feedback } = {}
   public users: Record<string, 'neutral' | 'priority' | 'muted'> = this.load()
-  public uninstalled: boolean = false
+  public uninstalled = false
 
   private bundle: any
   private started = false
@@ -225,10 +248,11 @@ export class PubPeer { // tslint:disable-line:variable-name
     this.bundle = Components.classes['@mozilla.org/intl/stringbundle;1'].getService(Components.interfaces.nsIStringBundleService).createBundle('chrome://zotero-pubpeer/locale/zotero-pubpeer.properties')
   }
 
-  public load() {
+  public load(): Record<string, 'neutral' | 'priority' | 'muted'> {
     try {
-      return JSON.parse(Zotero.Prefs.get('pubpeer.users') || '{}')
-    } catch (err) {
+      return JSON.parse(Zotero.Prefs.get('pubpeer.users') || '{}') as Record<string, 'neutral' | 'priority' | 'muted'>
+    }
+    catch (err) {
       return {}
     }
   }
@@ -247,9 +271,11 @@ export class PubPeer { // tslint:disable-line:variable-name
     if (typeof Zotero.ItemTreeView === 'undefined') ZoteroPane.itemsView.refreshAndMaintainSelection()
 
     Zotero.Notifier.registerObserver(this, ['item'], 'PubPeer', 1)
+
+    DebugLogSender.register('PubPeer', [])
   }
 
-  public getString(name, params = {}, html = false) {
+  public getString(name: string, params = {}, html = false) {
     if (!this.bundle || typeof this.bundle.GetStringFromName !== 'function') {
       Zotero.logError(`PubPeer.getString(${name}): getString called before strings were loaded`)
       return name
@@ -259,15 +285,16 @@ export class PubPeer { // tslint:disable-line:variable-name
 
     try {
       template = this.bundle.GetStringFromName(name)
-    } catch (err) {
+    }
+    catch (err) {
       Zotero.logError(`PubPeer.getString(${name}): ${err}`)
     }
 
-    const encode = html ? htmlencode : plaintext
-    return template.replace(/{{(.*?)}}/g, (match, param) => encode(params[param] || ''))
+    const encode: (t: string) => string = html ? htmlencode : plaintext
+    return template.replace(/{{(.*?)}}/g, (_match, param: string) => encode(params[param] || ''))
   }
 
-  public async get(dois, options: { refresh?: boolean } = {}) {
+  public async get(dois, options: { refresh?: boolean } = {}): Promise<Feedback[]> {
     const fetch = options.refresh ? dois : dois.filter(doi => !this.feedback[doi])
 
     if (fetch.length) {
@@ -282,20 +309,21 @@ export class PubPeer { // tslint:disable-line:variable-name
           if (feedback.last_commented_at.timezone !== 'UTC') debug(`PubPeer.get: ${feedback.id} has timezone ${feedback.last_commented_at.timezone}`)
           this.feedback[feedback.id] = {
             ...feedback,
-            last_commented_at: new Date(feedback.last_commented_at.date + 'Z'),
-            users: feedback.users.split(/\s*,\s*/).filter(u => u),
+            last_commented_at: new Date(feedback.last_commented_at.date as string + 'Z'), // eslint-disable-line prefer-template
+            users: feedback.users.split(/\s*,\s*/).filter((u: string) => u),
             shown: {},
           }
           for (const user of this.feedback[feedback.id].users) {
             this.users[user] = this.users[user] || 'neutral'
           }
         }
-      } catch (err) {
+      }
+      catch (err) {
         debug(`PubPeer.get(${fetch}): ${err}`)
       }
     }
 
-    return dois.map(doi => this.feedback[doi])
+    return dois.map((doi: string) => this.feedback[doi]) as Feedback[]
   }
 
   private async refresh() {
@@ -307,11 +335,11 @@ export class PubPeer { // tslint:disable-line:variable-name
       WHERE fieldname IN ('extra', 'DOI')
     `.replace(/[\s\n]+/g, ' ').trim()
 
-    let dois = []
-    for (const doi of await Zotero.DB.queryAsync(query)) {
+    let dois: string[] = []
+    for (const doi of (await Zotero.DB.queryAsync(query) as { fieldName: string, value: string }[])) {
       switch (doi.fieldName) {
         case 'extra':
-          dois = dois.concat(doi.value.split('\n').map(line => line.match(/^DOI:\s*(.+)/i)).filter(line => line).map(line => line[1].trim()))
+          dois = dois.concat(doi.value.split('\n').map((line: string) => line.match(/^DOI:\s*(.+)/i)).filter(line => line).map(line => line[1].trim()))
           break
         case 'DOI':
           dois.push(doi.value)
@@ -321,10 +349,10 @@ export class PubPeer { // tslint:disable-line:variable-name
 
     await this.get(dois, { refresh: true })
 
-    setTimeout(this.refresh.bind(this), 24 * 60 * 60 * 1000) // tslint:disable-line:no-magic-numbers
+    setTimeout(this.refresh.bind(this), 24 * 60 * 60 * 1000) // eslint-disable-line @typescript-eslint/no-magic-numbers
   }
 
-  protected async notify(action, type, ids, extraData) {
+  protected async notify(action: string, type: string, ids: number[], _extraData: any) {
     if (type !== 'item' || (action !== 'modify' && action !== 'add')) return
 
     const dois = []
@@ -336,21 +364,20 @@ export class PubPeer { // tslint:disable-line:variable-name
   }
 }
 
-Zotero.PubPeer = new PubPeer
+Zotero.PubPeer = Zotero.PubPeer || new PubPeer
 
 // used in zoteroPane.ts
 AddonManager.addAddonListener({
-  onUninstalling(addon, needsRestart) {
+  onUninstalling(addon, _needsRestart) {
     if (addon.id === 'pubpeer@pubpeer.com') Zotero.PubPeer.uninstalled = true
   },
 
   onDisabling(addon, needsRestart) { this.onUninstalling(addon, needsRestart) },
 
-  onOperationCancelled(addon, needsRestart) {
+  onOperationCancelled(addon, _needsRestart) {
     if (addon.id !== 'pubpeer@pubpeer.com') return null
 
-    // tslint:disable-next-line:no-bitwise
-    if (addon.pendingOperations & (AddonManager.PENDING_UNINSTALL | AddonManager.PENDING_DISABLE)) return null
+    if (addon.pendingOperations & (AddonManager.PENDING_UNINSTALL | AddonManager.PENDING_DISABLE)) return null // eslint-disable-line no-bitwise
 
     delete Zotero.PubPeer.uninstalled
   },

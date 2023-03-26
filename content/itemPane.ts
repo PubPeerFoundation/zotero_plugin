@@ -1,6 +1,7 @@
 declare const Zotero: IZotero
-declare const Components: any
 declare const ZoteroItemPane: any
+
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom'
 
 import { patch as $patch$ } from './monkey-patch'
 import { debug } from './debug'
@@ -25,7 +26,8 @@ function toggleUser() {
   // update display panes by issuing a fake item-update notification
   if (Zotero.PubPeer.ItemPane.item) {
     Zotero.Notifier.trigger('modify', 'item', [Zotero.PubPeer.ItemPane.item.id])
-  } else {
+  }
+  else {
     debug('toggleUser but no item set?')
   }
 }
@@ -41,8 +43,8 @@ export class ItemPane {
   private observer: number = null
 
   private dom = {
-    parser: Components.classes['@mozilla.org/xmlextras/domparser;1'].createInstance(Components.interfaces.nsIDOMParser),
-    serializer: Components.classes['@mozilla.org/xmlextras/xmlserializer;1'].createInstance(Components.interfaces.nsIDOMSerializer),
+    parser: new DOMParser,
+    serializer: new XMLSerializer,
   }
 
   public async notify(action, type, ids) {
@@ -62,12 +64,14 @@ export class ItemPane {
     await this.refresh()
   }
 
-  public async load(globals: Record<string, any>) {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  public async load(globals: Record<string, any>) { // async because of call in itemPane.xul
     loaded.document = globals.document
     this.observer = Zotero.Notifier.registerObserver(this, ['item'], 'PubPeer')
   }
 
-  public async unload() {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  public async unload() { // async because of call in itemPane.xul
     Zotero.Notifier.unregisterObserver(this.observer)
   }
 
@@ -82,10 +86,15 @@ export class ItemPane {
     const feedback = doi && (await Zotero.PubPeer.get([doi]))[0]
     if (feedback) {
       try {
-        summary = Zotero.PubPeer.getString('itemPane.summary', {...feedback, users: feedback.users.join(', '), last_commented_at: feedback.last_commented_at?.toLocaleString() || '<no known date>'}, true)
+        summary = Zotero.PubPeer.getString('itemPane.summary', {
+          ...feedback,
+          users: feedback.users.join(', '),
+          last_commented_at: feedback.last_commented_at?.toLocaleString() || '<no known date>'
+        }, true)
 
-        for (const user of feedback.users) {
-          Zotero.PubPeer.users[user] = Zotero.PubPeer.users[user] || 'neutral'
+        const html = this.dom.parser.parseFromString(summary, 'text/xml')
+        for (const a of Array.from(html.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'a'))) {
+          if (!a.getAttribute('url')) continue
 
           const hbox: any = container.appendChild(loaded.document.createElementNS(ns.xul, 'hbox'))
           hbox.setAttribute('align', 'center')
@@ -146,8 +155,11 @@ $patch$(ZoteroItemPane, 'viewItem', original => async function(item, mode, index
     const tabPanels = loaded.document.getElementById('zotero-editpane-tabs')
     pubPeerIndex = Array.from(tabPanels.children).findIndex(child => child.id === 'zotero-editpane-pubpeer-tab')
 
-    Zotero.PubPeer.ItemPane.refresh()
-  } catch (err) {
+    Zotero.PubPeer.ItemPane.refresh().catch(err => {
+      Zotero.logError(err)
+    })
+  }
+  catch (err) {
     Zotero.logError(`PubPeer.ZoteroItemPane.viewItem: ${err}`)
     pubPeerIndex = -1
   }
